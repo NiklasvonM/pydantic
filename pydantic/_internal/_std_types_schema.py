@@ -20,12 +20,13 @@ import typing_extensions
 from pydantic_core import (
     CoreSchema,
     PydanticCustomError,
+    PydanticUndefined,
+    PydanticUndefinedType,
     core_schema,
 )
 from typing_extensions import get_args, get_origin
 
 from pydantic._internal._serializers import serialize_sequence_via_list
-from pydantic.errors import PydanticSchemaGenerationError
 from pydantic.types import Strict
 
 from ..json_schema import JsonSchemaValue
@@ -249,8 +250,8 @@ def defaultdict_validator(
         return collections.defaultdict(default_default_factory, handler(input_value))
 
 
-def get_defaultdict_default_default_factory(values_source_type: Any) -> Callable[[], Any]:
-    def infer_default() -> Callable[[], Any]:
+def get_defaultdict_default_default_factory(values_source_type: Any) -> Callable[[], Any] | PydanticUndefinedType:
+    def infer_default() -> Callable[[], Any] | PydanticUndefinedType:
         allowed_default_types: dict[Any, Any] = {
             typing.Tuple: tuple,
             tuple: tuple,
@@ -285,13 +286,8 @@ def get_defaultdict_default_default_factory(values_source_type: Any) -> Callable
 
             return type_var_default_factory
         elif values_type_origin not in allowed_default_types:
-            # a somewhat subjective set of types that have reasonable default values
-            allowed_msg = ', '.join([t.__name__ for t in set(allowed_default_types.values())])
-            raise PydanticSchemaGenerationError(
-                f'Unable to infer a default factory for keys of type {values_source_type}.'
-                f' Only {allowed_msg} are supported, other types require an explicit default factory'
-                ' ' + instructions
-            )
+            # TODO: Raise PydanticSchemaGenerationError elsewhere if field_info doesn't contain default_factory either
+            return PydanticUndefined
         return allowed_default_types[values_type_origin]
 
     # Assume Annotated[..., Field(...)]
@@ -341,10 +337,13 @@ class MappingValidator:
 
             if self.mapped_origin is collections.defaultdict:
                 default_default_factory = get_defaultdict_default_default_factory(self.values_source_type)
-                coerce_instance_wrap = partial(
-                    core_schema.no_info_wrap_validator_function,
-                    partial(defaultdict_validator, default_default_factory=default_default_factory),
-                )
+                if isinstance(default_default_factory, PydanticUndefinedType):
+                    coerce_instance_wrap = partial(core_schema.no_info_after_validator_function, self.mapped_origin)
+                else:
+                    coerce_instance_wrap = partial(
+                        core_schema.no_info_wrap_validator_function,
+                        partial(defaultdict_validator, default_default_factory=default_default_factory),
+                    )
             else:
                 coerce_instance_wrap = partial(core_schema.no_info_after_validator_function, self.mapped_origin)
 

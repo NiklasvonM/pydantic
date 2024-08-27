@@ -5808,6 +5808,18 @@ def test_defaultdict_explicit_default_factory() -> None:
     assert isinstance(m.a.default_factory(), MyList)
 
 
+def test_defaultdict_explicit_default_factory_non_annotated() -> None:
+    class ModelA(BaseModel):
+        pass
+
+    class ModelB(BaseModel):
+        a: DefaultDict[int, ModelA] = Field(default_factory=lambda: defaultdict(ModelA))
+
+    m = ModelB()
+    assert m.a.default_factory is not None
+    assert isinstance(m.a.default_factory(), ModelA)
+
+
 def test_defaultdict_default_factory_preserved() -> None:
     class Model(BaseModel):
         a: DefaultDict[int, List[int]]
